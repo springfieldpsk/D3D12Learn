@@ -1,0 +1,9 @@
+# Xmake cache
+.xmake/
+build/
+vs2022/
+vsxmake2022/
+# MacOS Cache
+.DS_Store
+
+
