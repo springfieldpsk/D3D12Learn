@@ -1,5 +1,6 @@
 # Xmake cache
 .xmake/
+.vscode/
 build/
 vs2022/
 vsxmake2022/
