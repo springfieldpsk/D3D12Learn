@@ -1,5 +1,13 @@
 add_rules("mode.debug", "mode.release")
 
+ add_defines( "UNICODE", "_UNICODE")
+
+if is_mode('debug') then
+    add_defines('_DEBUG')
+else
+    add_defines('_RELEASE')
+end
+
 target("01CreateWindowXmakeV")
     set_languages("c++17")
     add_rules("win.sdk.application")

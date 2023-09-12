@@ -74,7 +74,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmd
 
     HWND hWnd = nullptr;
     MSG msg = {};
-
+    TCHAR miniEngineAppPath[MAX_PATH] = {};
+    
     float fAspectRatio = 3.0f;
 
     D3D12_VERTEX_BUFFER_VIEW stVertexBufferView = {};
@@ -104,6 +105,24 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmd
 
     try
     {
+        // 获取当前工作目录 方便使用相对路径获取资源文件
+        {
+            // 获取当前运行目录
+            if(::GetModuleFileName(nullptr, miniEngineAppPath, MAX_PATH))
+            {
+                // HRESULT_FROM_WIN32 将 系统错误代码 映射到 HRESULT 值
+                // GetLastError 检索调用线程的最后错误代码值
+                MINI_ENGINE_THROW(HRESULT_FROM_WIN32(GetLastError()));
+            }
+            
+            // _tcsstr 查找一个字符串中的子串
+            TCHAR* lastSlash = _tcsstr(miniEngineAppPath, _T("\\build"));
+            if(lastSlash)
+            {
+                *(lastSlash) = _T('\0');
+            }
+        }
+        
         // 创建窗口
         {
             WNDCLASSEX wcex = {};
@@ -115,7 +134,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmd
             wcex.hInstance = hInstance;
             wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
             wcex.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);		//防止无聊的背景重绘
-            wcex.lpszClassName = MINI_ENGINE_WND_CLASS_NAME;
+            wcex.lpszClassName = MINI_ENGINE_WND_CLASS_NAME_L;
             RegisterClassEx(&wcex);
 
             DWORD dwWndStyle = WS_OVERLAPPED | WS_SYSMENU; // 先不使用 WS_OVERLAPPEDWINDOW 避免处理OnSize
@@ -284,6 +303,62 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmd
 
         // 编译Shader创建渲染管线对象
         {
+            ComPtr<ID3DBlob> pIBlobVertexShader;
+            ComPtr<ID3DBlob> pIBlobPixelShader;
+
+#if defined(_DEBUG)
+            // 调试状态下 打开 Shader 编译的调试标志 不优化
+            UINT nCompileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+            UINT nCompileFlags = 0;
+#endif
+            TCHAR miniEngineFileName[MAX_PATH] = {};
+            StringCchPrintf(miniEngineFileName,
+                MAX_PATH,
+                _T("Shader\\shaders.hlsl"),
+                miniEngineAppPath);
+
+            MINI_ENGINE_THROW(D3DCompileFromFile(miniEngineFileName,
+                nullptr,
+                nullptr,
+                "VSMain",
+                "vs_5_0",
+                nCompileFlags,
+                0,
+                &pIBlobVertexShader,
+                nullptr));
+
+            MINI_ENGINE_THROW(D3DCompileFromFile(miniEngineFileName,
+                nullptr,
+                nullptr,
+                "PSMain",
+                "ps_5_0",
+                nCompileFlags,
+                0,
+                &pIBlobPixelShader,
+                nullptr));
+
+            // 定义顶点格式
+            D3D12_INPUT_ELEMENT_DESC stInputElementDescs [] = {
+                {
+                    "POSITION",
+                    0,
+                    DXGI_FORMAT_R32G32B32A32_FLOAT,
+                    0,
+                    0,
+                    D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+                    0
+                },
+                {
+                    "COLOR",
+                    0,
+                    DXGI_FORMAT_R32G32B32A32_FLOAT,
+                    0,
+                    16,
+                    D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+                    0
+                }
+            };
             
         }
         {
