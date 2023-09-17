@@ -52,7 +52,7 @@ private:
 // 定义顶点格式
 struct MINIENGINE_VERTEX
 {
-    XMFLOAT3 position;
+    XMFLOAT4 position;
     XMFLOAT4 color;
 };
 
@@ -359,8 +359,94 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmd
                     0
                 }
             };
+
+            // 定义渲染管线状态描述结构，创建渲染管线对象
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC stPSODesc = {};
+            stPSODesc.InputLayout = { stInputElementDescs, _countof(stInputElementDescs)};
+            stPSODesc.pRootSignature = pIRootSignature.Get();
+            stPSODesc.VS.pShaderBytecode = pIBlobVertexShader->GetBufferPointer();
+            stPSODesc.VS.BytecodeLength = pIBlobVertexShader->GetBufferSize();
+            stPSODesc.PS.pShaderBytecode = pIBlobPixelShader->GetBufferPointer();
+            stPSODesc.PS.BytecodeLength = pIBlobPixelShader->GetBufferSize();
+
+            stPSODesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+            stPSODesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+
+            stPSODesc.BlendState.AlphaToCoverageEnable = FALSE;
+            stPSODesc.BlendState.IndependentBlendEnable = FALSE;
+            stPSODesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+            stPSODesc.DepthStencilState.DepthEnable = FALSE;
+            stPSODesc.DepthStencilState.StencilEnable = FALSE;
+
+            stPSODesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+            stPSODesc.NumRenderTargets = 1;
+            stPSODesc.RTVFormats[0] = emRenderTargetFormat;
+
+            stPSODesc.SampleMask = UINT_MAX;
+            stPSODesc.SampleDesc.Count = 1;
             
+            MINI_ENGINE_THROW(pID3DDevice->CreateGraphicsPipelineState(&stPSODesc, IID_PPV_ARGS(&pIPipelineState)));
         }
+
+        // 创建顶点缓冲
+        {
+            // 定义三角形的数据结构，每个顶点色使用三原色之一
+            MINIENGINE_VERTEX stTriangleVertices[] = {
+                {{ 0.0f, 0.25f * fAspectRatio, 0.0f, 1.0f},{1.0f, 0.0f, 0.0f, 1.0f}},
+                {{ 0.25f * fAspectRatio, -0.25f * fAspectRatio, 0.0f, 1.0f},{1.0f, 0.0f, 0.0f, 1.0f}},
+                {{ -0.25f * fAspectRatio, -0.25f * fAspectRatio, 0.0f, 1.0f},{1.0f, 0.0f, 0.0f, 1.0f}}
+            };
+
+            const UINT nVertexBufferSize = sizeof(stTriangleVertices);
+
+            // CPU 内存上传至缓存
+            D3D12_HEAP_PROPERTIES stHeapProp = { D3D12_HEAP_TYPE_UPLOAD };
+
+            // 描述顶点资源描述符
+            D3D12_RESOURCE_DESC stResSesc = {};
+            stResSesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            stResSesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            stResSesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+            stResSesc.Format = DXGI_FORMAT_UNKNOWN;
+            stResSesc.Width = nVertexBufferSize;
+            stResSesc.Height = 1;
+            stResSesc.DepthOrArraySize = 1;
+            stResSesc.MipLevels = 1;
+            stResSesc.SampleDesc.Count = 1;
+            stResSesc.SampleDesc.Quality = 0;
+
+            // 向设备 GPU 提交资源 (DX12 中不多的同步函数)
+            MINI_ENGINE_THROW(pID3DDevice->CreateCommittedResource(&stHeapProp
+                , D3D12_HEAP_FLAG_NONE
+                ,&stResSesc
+                ,D3D12_RESOURCE_STATE_GENERIC_READ
+                ,nullptr
+                ,IID_PPV_ARGS(&pIVertexBuffer)));
+
+            UINT8* pVertexDataBegin = nullptr;
+            D3D12_RANGE stReadRange = {0,0};
+
+            // Map 获取指向资源中指定子资源的 CPU 指针，但可能不会向应用程序透露指针值。
+            // 映射 还会在必要时使 CPU 缓存失效，以便 CPU 读取到此地址反映 GPU 所做的任何修改。
+            MINI_ENGINE_THROW(pIVertexBuffer->Map(
+                0,
+                &stReadRange,
+                reinterpret_cast<void**>(&pVertexDataBegin)));
+
+            memcpy(pVertexDataBegin, stTriangleVertices, sizeof(stTriangleVertices));
+
+            // 使指向资源中指定子资源的 CPU 指针失效。
+            pIVertexBuffer->Unmap(0 ,nullptr);
+
+            // 通过结构体对象描述资源视图 使得GPU明确当前资源为 Vertex Buffer 目的是 脚本化实现
+            stVertexBufferView.BufferLocation = pIVertexBuffer->GetGPUVirtualAddress();
+            stVertexBufferView.StrideInBytes = sizeof(MINIENGINE_VERTEX);
+            stVertexBufferView.SizeInBytes = nVertexBufferSize;
+        }
+
+        // 创建同步对象 Fence 等待异步渲染完成
         {
             while(true)
             {
