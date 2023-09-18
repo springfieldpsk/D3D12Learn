@@ -58,14 +58,13 @@ struct MINIENGINE_VERTEX
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
-int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)
 {
     const UINT nFrameBackBufCount = 3u;
 
     int iWidth = 800;
     int iHeight = 600;
     UINT nFrameIndex = 0;
-    UINT nFrame = 0;
 
     DXGI_FORMAT emRenderTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
     const float fClearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
@@ -300,7 +299,21 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmd
                 pISignatureBlob->GetBufferSize(),
                 IID_PPV_ARGS(&pIRootSignature)));
         }
+        
+        {
+            // 创建命令列表分配器
+            MINI_ENGINE_THROW(pID3DDevice->CreateCommandAllocator(
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                IID_PPV_ARGS(&pICommandAllocator)));
 
+            // 创建命令列表 同时与PSO绑定
+            MINI_ENGINE_THROW(pID3DDevice->CreateCommandList(
+                0,
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                pICommandAllocator.Get(),
+                pIPipelineState.Get(),
+                IID_PPV_ARGS(&pICommandList)));
+        }
         // 编译Shader创建渲染管线对象
         {
             ComPtr<ID3DBlob> pIBlobVertexShader;
@@ -315,7 +328,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmd
             TCHAR miniEngineFileName[MAX_PATH] = {};
             StringCchPrintf(miniEngineFileName,
                 MAX_PATH,
-                _T("Shader\\shaders.hlsl"),
+                _T("%s\\Shader\\shaders.hlsl"),
                 miniEngineAppPath);
 
             MINI_ENGINE_THROW(D3DCompileFromFile(miniEngineFileName,
@@ -448,9 +461,129 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmd
 
         // 创建同步对象 Fence 等待异步渲染完成
         {
-            while(true)
+            MINI_ENGINE_THROW(pID3DDevice->CreateFence(0,
+                D3D12_FENCE_FLAG_NONE,
+                IID_PPV_ARGS(&pIFence)));
+
+            n64FenceValue = 1;
+
+            // 创建一个 Event 同步对象，用于等待围栏事件通知
+            hFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+            if(hFenceEvent == nullptr)
             {
-                
+                MINI_ENGINE_THROW(HRESULT_FROM_WIN32(GetLastError()));
+            }
+        }
+
+        // 填充资源屏障结构
+        D3D12_RESOURCE_BARRIER stBeginResBarrier = {};
+        stBeginResBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        stBeginResBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        stBeginResBarrier.Transition.pResource = pIARenderTargets[nFrameIndex].Get();
+        stBeginResBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        stBeginResBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        stBeginResBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        D3D12_RESOURCE_BARRIER stEndResBarrier = {};
+        stEndResBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        stEndResBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        stEndResBarrier.Transition.pResource = pIARenderTargets[nFrameIndex].Get();
+        stEndResBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        stEndResBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+        stEndResBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        D3D12_CPU_DESCRIPTOR_HANDLE stRTVHandle = pIRTVHeap->GetCPUDescriptorHandleForHeapStart();
+        DWORD dwRet = 0;
+        BOOL bExit = FALSE;
+
+        MINI_ENGINE_THROW(pICommandList->Close());
+        SetEvent(hFenceEvent);
+
+        // 开始消息循环
+        while (!bExit)
+        {
+            dwRet = ::MsgWaitForMultipleObjects(1, &hFenceEvent, FALSE, INFINITE, QS_ALLINPUT);
+
+            switch (dwRet - WAIT_OBJECT_0)
+            {
+            case 0:
+                {
+                    // 获取新的缓冲区号，当 Present 完成时后缓冲号更新
+                    nFrameIndex = pISwapChain3->GetCurrentBackBufferIndex();
+
+                    // Reset 命令分配器
+                    MINI_ENGINE_THROW(pICommandAllocator->Reset());
+
+                    // Reset 命令列表以重新指定命令分配器与PSO对象
+                    MINI_ENGINE_THROW(pICommandList->Reset(pICommandAllocator.Get(), pIPipelineState.Get()));
+
+                    // 开始记录命令
+                    pICommandList->SetGraphicsRootSignature(pIRootSignature.Get());
+                    pICommandList->SetPipelineState(pIPipelineState.Get());
+                    pICommandList->RSSetViewports(1, &stViewPort);
+                    pICommandList->RSSetScissorRects(1, &stScissorRect);
+
+                    // 通过资源屏障判定后缓冲已经切换完毕 准备渲染
+                    stBeginResBarrier.Transition.pResource = pIARenderTargets[nFrameIndex].Get();
+                    pICommandList->ResourceBarrier(1, &stBeginResBarrier);
+
+                    stRTVHandle = pIRTVHeap->GetCPUDescriptorHandleForHeapStart();
+                    stRTVHandle.ptr += nFrameIndex * nRTVDescriptorSize;
+
+                    // 设置渲染目标
+                    pICommandList->OMSetRenderTargets(1, &stRTVHandle, FALSE, nullptr);
+
+                    pICommandList->ClearRenderTargetView(stRTVHandle, fClearColor, 0, nullptr);
+                    pICommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+                    pICommandList->IASetVertexBuffers(0, 1, &stVertexBufferView);
+
+                    // DrawCall
+                    pICommandList->DrawInstanced(3, 1, 0, 0);
+
+                    stEndResBarrier.Transition.pResource = pIARenderTargets[nFrameIndex].Get();
+                    pICommandList->ResourceBarrier(1, &stEndResBarrier);
+
+                    // 关闭命令队列， 准备执行
+                    MINI_ENGINE_THROW(pICommandList->Close());
+
+                    // 执行命令列表
+                    ID3D12CommandList* ppCommandList[] = {pICommandList.Get()};
+                    pICommandQueue->ExecuteCommandLists(_countof(ppCommandList), ppCommandList);
+
+                    // 提交画面
+                    MINI_ENGINE_THROW(pISwapChain3->Present(1, 0));
+
+                    // 开始同步 GPU 与 CPU 执行，先记录围栏标记值
+                    const UINT64 n64CurrentFenceValue = n64FenceValue;
+                    MINI_ENGINE_THROW(pICommandQueue->Signal(pIFence.Get(), n64CurrentFenceValue));
+                    n64FenceValue ++ ;
+                    MINI_ENGINE_THROW(pIFence->SetEventOnCompletion(n64CurrentFenceValue, hFenceEvent));
+                }
+                break;
+            case 1:
+                {
+                    // 处理消息
+                    while (::PeekMessage(&msg, NULL, 0, 0 ,PM_REMOVE))
+                    {
+                        if(WM_QUIT != msg.message)
+                        {
+                            ::TranslateMessage(&msg);
+                            ::DispatchMessage(&msg);
+                        }
+                        else
+                        {
+                            bExit = TRUE;
+                        }
+                    }
+                }
+                break;
+            case WAIT_TIMEOUT:
+                {
+                    
+                }
+                break;
+            default:
+                break;
             }
         }
     }
