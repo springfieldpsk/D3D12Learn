@@ -8,11 +8,17 @@ else
     add_defines('_RELEASE')
 end
 
-target("01CreateWindowXmakeV")
+target("01CreateTriangle")
     set_languages("c++17")
     add_rules("win.sdk.application")
     add_includedirs("ThirdParty")
-    add_files("src/*.cpp")
+    add_files("src/01CreateTriangle.cpp")
+
+target("02LoadImage")
+    set_languages("c++17")
+    add_rules("win.sdk.application")
+    add_includedirs("ThirdParty")
+    add_files("src/02LoadImage.cpp")
 
 --
 -- If you want to known more usage about xmake, please see https://xmake.io

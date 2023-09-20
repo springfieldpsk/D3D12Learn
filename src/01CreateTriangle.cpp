@@ -26,6 +26,7 @@ using namespace DirectX;
 #endif
 
 #include "D3DX12/include/d3dx12.h"
+#include "stb/include/stb_image.h"
 
 #define MINI_ENGINE_WND_CLASS_NAME "Test Dx12 Class"
 #define MINI_ENGINE_WND_TITLE "Test Dx12 Window"
@@ -273,8 +274,10 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 
         // 创建空的默认根签名对象
         // 根签名目的是集中管理在此前D3D11中在各个Slot中存储的资源
+        // 根签名描述了渲染管线需要的资源存储在易失性存储中的数据格式
         // MSDN : 根签名是一个绑定约定，由应用程序定义，着色器使用它来定位他们需要访问的资源。
         // 目标是 PSO 的搭建
+        // 根签名描述了常量、常量缓冲区（CBV）、资源（SRC，纹理）、无序访问缓冲（UAV、随机读写缓冲）、采样器等寄存器存储规划的结构体
         {
             // 可以使用 d3dx12.h 中的 CD3DX12_ROOT_SIGNATURE_DESC 代替
             // CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
