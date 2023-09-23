@@ -331,7 +331,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
             TCHAR miniEngineFileName[MAX_PATH] = {};
             StringCchPrintf(miniEngineFileName,
                 MAX_PATH,
-                _T("%s\\Shader\\shaders.hlsl"),
+                _T("%s\\Shader\\shaders01.hlsl"),
                 miniEngineAppPath);
 
             MINI_ENGINE_THROW(D3DCompileFromFile(miniEngineFileName,

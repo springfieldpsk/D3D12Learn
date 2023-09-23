@@ -1,3 +1,4 @@
+// ReSharper disable CppMsExtAddressOfClassRValue
 #include <SDKDDKVer.h>      //用于根据您希望程序支持的操作系统从Windows头控制将哪些函数、常量等包含到代码中。copy的注释，知道和Windows相关就得了。删了都不报错
 #define WIN32_LEAN_AND_MEAN // 从 Windows 头中排除极少使用的资料
 #include <windows.h>
@@ -10,6 +11,7 @@
 #include <d3d12.h>
 #include <d3d12shader.h>
 #include <d3dcompiler.h>
+#include <stdexcept>
 
 using namespace Microsoft;
 using namespace Microsoft::WRL;
@@ -21,11 +23,13 @@ using namespace DirectX;
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-#if defined(_DEBUG)
+#if defined(DEBUG)
 #include <dxgidebug.h>
 #endif
 
 #include "D3DX12/include/d3dx12.h"
+
+#define STB_IMAGE_IMPLEMENTATION
 #include "stb/include/stb_image.h"
 
 #define MINI_ENGINE_WND_CLASS_NAME "Test Dx12 Class"
@@ -53,11 +57,49 @@ private:
 // 定义顶点格式
 struct MINIENGINE_VERTEX
 {
-    XMFLOAT4 position;
-    XMFLOAT4 color;
+    XMFLOAT3 vertexPos; // pos
+    XMFLOAT2 vertexUV; // Texcoord
 };
 
+const UINT nTexturePixelSize = 4;
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+
+std::vector<UINT8> GenerateTexture(UINT nTextureW, UINT nTextureH)
+{
+    // 使用黑白纹理填充图片数据
+    const UINT rowPitch = nTextureW * nTexturePixelSize;
+    const UINT cellPitch = rowPitch >> 3;
+    const UINT cellHeight = nTextureW >> 3;
+    const UINT textureSize = rowPitch * nTextureH;
+
+    std::vector<UINT8> data(textureSize);
+    UINT8* pData = &data[0];
+
+    for(UINT n = 0 ; n < textureSize; n += nTexturePixelSize)
+    {
+        UINT x = n % rowPitch;
+        UINT y = n / rowPitch;
+        UINT i = x / cellPitch;
+        UINT j = y / cellHeight;
+
+        if(i % 2 == j % 2)
+        {
+            pData[n] = 0x00;        // R
+            pData[n + 1] = 0x00;    // G
+            pData[n + 2] = 0x00;    // B
+            pData[n + 3] = 0xff;    // A
+        }
+        else
+        {
+            pData[n] = 0xff;        // R
+            pData[n + 1] = 0xff;    // G
+            pData[n + 2] = 0xff;    // B
+            pData[n + 3] = 0xff;    // A
+        }
+    }
+    return data;
+}
 
 int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)
 {
@@ -67,6 +109,9 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
     int iHeight = 600;
     UINT nFrameIndex = 0;
 
+    UINT nTextureW = 0u;
+    UINT nTextureH = 0u;
+    UINT nBPP	   = 0u;
     DXGI_FORMAT emRenderTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
     const float fClearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
     UINT nDXGIFactoryFlags = 0u;
@@ -95,7 +140,9 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
     ComPtr<IDXGISwapChain1>              pISwapChain1;
     ComPtr<IDXGISwapChain3>              pISwapChain3;
     ComPtr<ID3D12DescriptorHeap>         pIRTVHeap;
+    ComPtr<ID3D12DescriptorHeap>         pISRVHeap;
     ComPtr<ID3D12Resource>               pIARenderTargets[nFrameBackBufCount];
+    ComPtr<ID3D12Resource>               pITexture;
     ComPtr<ID3D12CommandAllocator>       pICommandAllocator;
     ComPtr<ID3D12RootSignature>          pIRootSignature;
     ComPtr<ID3D12PipelineState>          pIPipelineState;
@@ -270,8 +317,16 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
                     stRTVHandle.Offset(1, nRTVDescriptorSize);
                 }
             }
+            
         }
+        // 创建SRV堆
+        D3D12_DESCRIPTOR_HEAP_DESC stSRVHeapDesc = {};
+        stSRVHeapDesc.NumDescriptors = 1;
+        stSRVHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        stSRVHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
+        MINI_ENGINE_THROW(pID3DDevice->CreateDescriptorHeap(&stSRVHeapDesc, IID_PPV_ARGS(&pISRVHeap)));
+        
         // 创建空的默认根签名对象
         // 根签名目的是集中管理在此前D3D11中在各个Slot中存储的资源
         // 根签名描述了渲染管线需要的资源存储在易失性存储中的数据格式
@@ -338,26 +393,12 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
                 IID_PPV_ARGS(&pIRootSignature)));
         }
         
-        {
-            // 创建命令列表分配器
-            MINI_ENGINE_THROW(pID3DDevice->CreateCommandAllocator(
-                D3D12_COMMAND_LIST_TYPE_DIRECT,
-                IID_PPV_ARGS(&pICommandAllocator)));
-
-            // 创建命令列表 同时与PSO绑定
-            MINI_ENGINE_THROW(pID3DDevice->CreateCommandList(
-                0,
-                D3D12_COMMAND_LIST_TYPE_DIRECT,
-                pICommandAllocator.Get(),
-                pIPipelineState.Get(),
-                IID_PPV_ARGS(&pICommandList)));
-        }
         // 编译Shader创建渲染管线对象
         {
             ComPtr<ID3DBlob> pIBlobVertexShader;
             ComPtr<ID3DBlob> pIBlobPixelShader;
 
-#if defined(_DEBUG)
+#if defined(DEBUG)
             // 调试状态下 打开 Shader 编译的调试标志 不优化
             UINT nCompileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #else
@@ -366,7 +407,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
             TCHAR miniEngineFileName[MAX_PATH] = {};
             StringCchPrintf(miniEngineFileName,
                 MAX_PATH,
-                _T("%s\\Shader\\shaders.hlsl"),
+                _T("%s\\Shader\\shaders02.hlsl"),
                 miniEngineAppPath);
 
             MINI_ENGINE_THROW(D3DCompileFromFile(miniEngineFileName,
@@ -394,18 +435,18 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
                 {
                     "POSITION",
                     0,
-                    DXGI_FORMAT_R32G32B32A32_FLOAT,
+                    DXGI_FORMAT_R32G32B32_FLOAT,
                     0,
                     0,
                     D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
                     0
                 },
                 {
-                    "COLOR",
+                    "TEXCOORD",
                     0,
-                    DXGI_FORMAT_R32G32B32A32_FLOAT,
+                    DXGI_FORMAT_R32G32_FLOAT,
                     0,
-                    16,
+                    12,
                     D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
                     0
                 }
@@ -415,88 +456,170 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
             D3D12_GRAPHICS_PIPELINE_STATE_DESC stPSODesc = {};
             stPSODesc.InputLayout = { stInputElementDescs, _countof(stInputElementDescs)};
             stPSODesc.pRootSignature = pIRootSignature.Get();
-            stPSODesc.VS.pShaderBytecode = pIBlobVertexShader->GetBufferPointer();
-            stPSODesc.VS.BytecodeLength = pIBlobVertexShader->GetBufferSize();
-            stPSODesc.PS.pShaderBytecode = pIBlobPixelShader->GetBufferPointer();
-            stPSODesc.PS.BytecodeLength = pIBlobPixelShader->GetBufferSize();
-
-            stPSODesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-            stPSODesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
-
-            stPSODesc.BlendState.AlphaToCoverageEnable = FALSE;
-            stPSODesc.BlendState.IndependentBlendEnable = FALSE;
-            stPSODesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
+            stPSODesc.VS = CD3DX12_SHADER_BYTECODE(pIBlobVertexShader.Get());
+            stPSODesc.PS = CD3DX12_SHADER_BYTECODE(pIBlobPixelShader.Get());
+            stPSODesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+            stPSODesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
             stPSODesc.DepthStencilState.DepthEnable = FALSE;
             stPSODesc.DepthStencilState.StencilEnable = FALSE;
-
-            stPSODesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-
-            stPSODesc.NumRenderTargets = 1;
-            stPSODesc.RTVFormats[0] = emRenderTargetFormat;
-
             stPSODesc.SampleMask = UINT_MAX;
+            stPSODesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+            stPSODesc.NumRenderTargets = 1;
+            stPSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
             stPSODesc.SampleDesc.Count = 1;
             
             MINI_ENGINE_THROW(pID3DDevice->CreateGraphicsPipelineState(&stPSODesc, IID_PPV_ARGS(&pIPipelineState)));
         }
-
-        // 创建顶点缓冲
         {
-            // 定义三角形的数据结构，每个顶点色使用三原色之一
-            MINIENGINE_VERTEX stTriangleVertices[] = {
-                {{ 0.0f, 0.25f * fAspectRatio, 0.0f, 1.0f},{1.0f, 0.0f, 0.0f, 1.0f}},
-                {{ 0.25f * fAspectRatio, -0.25f * fAspectRatio, 0.0f, 1.0f},{1.0f, 0.0f, 0.0f, 1.0f}},
-                {{ -0.25f * fAspectRatio, -0.25f * fAspectRatio, 0.0f, 1.0f},{1.0f, 0.0f, 0.0f, 1.0f}}
-            };
+            // 创建命令列表分配器
+            MINI_ENGINE_THROW(pID3DDevice->CreateCommandAllocator(
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                IID_PPV_ARGS(&pICommandAllocator)));
 
-            const UINT nVertexBufferSize = sizeof(stTriangleVertices);
-
-            // CPU 内存上传至缓存
-            D3D12_HEAP_PROPERTIES stHeapProp = { D3D12_HEAP_TYPE_UPLOAD };
-
-            // 描述顶点资源描述符
-            D3D12_RESOURCE_DESC stResSesc = {};
-            stResSesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            stResSesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-            stResSesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-            stResSesc.Format = DXGI_FORMAT_UNKNOWN;
-            stResSesc.Width = nVertexBufferSize;
-            stResSesc.Height = 1;
-            stResSesc.DepthOrArraySize = 1;
-            stResSesc.MipLevels = 1;
-            stResSesc.SampleDesc.Count = 1;
-            stResSesc.SampleDesc.Quality = 0;
-
-            // 向设备 GPU 提交资源 (DX12 中不多的同步函数)
-            MINI_ENGINE_THROW(pID3DDevice->CreateCommittedResource(&stHeapProp
-                , D3D12_HEAP_FLAG_NONE
-                ,&stResSesc
-                ,D3D12_RESOURCE_STATE_GENERIC_READ
-                ,nullptr
-                ,IID_PPV_ARGS(&pIVertexBuffer)));
-
-            UINT8* pVertexDataBegin = nullptr;
-            D3D12_RANGE stReadRange = {0,0};
-
-            // Map 获取指向资源中指定子资源的 CPU 指针，但可能不会向应用程序透露指针值。
-            // 映射 还会在必要时使 CPU 缓存失效，以便 CPU 读取到此地址反映 GPU 所做的任何修改。
-            MINI_ENGINE_THROW(pIVertexBuffer->Map(
+            // 创建命令列表 同时与PSO绑定
+            MINI_ENGINE_THROW(pID3DDevice->CreateCommandList(
                 0,
-                &stReadRange,
-                reinterpret_cast<void**>(&pVertexDataBegin)));
-
-            memcpy(pVertexDataBegin, stTriangleVertices, sizeof(stTriangleVertices));
-
-            // 使指向资源中指定子资源的 CPU 指针失效。
-            pIVertexBuffer->Unmap(0 ,nullptr);
-
-            // 通过结构体对象描述资源视图 使得GPU明确当前资源为 Vertex Buffer 目的是 脚本化实现
-            stVertexBufferView.BufferLocation = pIVertexBuffer->GetGPUVirtualAddress();
-            stVertexBufferView.StrideInBytes = sizeof(MINIENGINE_VERTEX);
-            stVertexBufferView.SizeInBytes = nVertexBufferSize;
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                pICommandAllocator.Get(),
+                pIPipelineState.Get(),
+                IID_PPV_ARGS(&pICommandList)));
         }
+        // 创建顶点缓冲
+        // 定义正方形的数据结构
+        MINIENGINE_VERTEX stTriangleVertices[] = {
+            { { -0.25f * fAspectRatio, -0.25f * fAspectRatio, 0.0f}, { 0.0f, 1.0f } },	// Bottom left.
+            { { -0.25f* fAspectRatio, 0.25f * fAspectRatio, 0.0f}, { 0.0f, 0.0f } },	// Top left.
+            { { 0.25f* fAspectRatio, -0.25f * fAspectRatio, 0.0f }, { 1.0f, 1.0f } },	// Bottom right.
+            { { 0.25f* fAspectRatio, 0.25f * fAspectRatio, 0.0f}, { 1.0f, 0.0f } },		// Top right.
+        };
 
+        const UINT nVertexBufferSize = sizeof(stTriangleVertices);
+        
+        // 向设备 GPU 提交资源 (DX12 中不多的同步函数)
+        MINI_ENGINE_THROW(pID3DDevice->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD)
+            ,D3D12_HEAP_FLAG_NONE
+            ,&CD3DX12_RESOURCE_DESC::Buffer(nVertexBufferSize)
+            ,D3D12_RESOURCE_STATE_GENERIC_READ
+            ,nullptr
+            ,IID_PPV_ARGS(&pIVertexBuffer)));
+
+        UINT8* pVertexDataBegin = nullptr;
+        CD3DX12_RANGE stReadRange(0, 0);
+
+        // Map 获取指向资源中指定子资源的 CPU 指针，但可能不会向应用程序透露指针值。
+        // 映射 还会在必要时使 CPU 缓存失效，以便 CPU 读取到此地址反映 GPU 所做的任何修改。
+        MINI_ENGINE_THROW(pIVertexBuffer->Map(
+            0,
+            &stReadRange,
+            reinterpret_cast<void**>(&pVertexDataBegin)));
+
+        memcpy(pVertexDataBegin, stTriangleVertices, sizeof(stTriangleVertices));
+
+        // 使指向资源中指定子资源的 CPU 指针失效。
+        pIVertexBuffer->Unmap(0 ,nullptr);
+
+        // 通过结构体对象描述资源视图 使得GPU明确当前资源为 Vertex Buffer 目的是 脚本化实现
+        stVertexBufferView.BufferLocation = pIVertexBuffer->GetGPUVirtualAddress();
+        stVertexBufferView.StrideInBytes = sizeof(MINIENGINE_VERTEX);
+        stVertexBufferView.SizeInBytes = nVertexBufferSize;
+        
+        // 加载 2D 纹理
+        {
+            nTextureW = 1024u;
+            nTextureH = 1024u;
+            
+            ComPtr<ID3D12Resource> pITexure2DUpload;
+
+            // 使用 CD3DX12_RESOURCE_DESC::Tex2D 代替以下结构体
+            // D3D12_RESOURCE_DESC stTexDesc = {};
+            // stTexDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            // stTexDesc.MipLevels = 1;
+            // stTexDesc.Format    = emRenderTargetFormat;
+            // stTexDesc.Width     = nTextureW;
+            // stTexDesc.Height    = nTextureH;
+            // stTexDesc.Flags     = D3D12_RESOURCE_FLAG_NONE;
+            // stTexDesc.DepthOrArraySize   = 1;
+            // stTexDesc.SampleDesc.Count   = 1;
+            // stTexDesc.SampleDesc.Quality = 0;
+
+            // 创建默认堆上的资源，类型是Texture2D，GPU对默认堆的读取速度最快
+            // 由于纹理资源一般是不易变资源，因此使用上传堆复制到默认堆上
+            // 在传统的D3D11及以前的D3D接口中，这些过程都被封装了，我们只能指定创建时的类型为默认堆
+            MINI_ENGINE_THROW(pID3DDevice->CreateCommittedResource(
+                &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+                D3D12_HEAP_FLAG_NONE,
+                &CD3DX12_RESOURCE_DESC::Tex2D(emRenderTargetFormat, nTextureW, nTextureH),
+                D3D12_RESOURCE_STATE_COPY_DEST,
+                nullptr,
+                IID_PPV_ARGS(&pITexture)));
+
+            // 使用 GetRequiredIntermediateSize 获取上传 Buffer 大小
+            const UINT64 n64UploadBufferSize = GetRequiredIntermediateSize(pITexture.Get(), 0, 1);
+
+            // 创建上传纹理的 Buffer 资源, 由于上传堆对于 GPU 访问效率很差，因此对于默认不变数据采用上传堆复制到默认堆上
+            MINI_ENGINE_THROW(pID3DDevice->CreateCommittedResource(
+                &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+                D3D12_HEAP_FLAG_NONE,
+                &CD3DX12_RESOURCE_DESC::Buffer(n64UploadBufferSize),
+                D3D12_RESOURCE_STATE_GENERIC_READ,
+                nullptr,
+                IID_PPV_ARGS(&pITexure2DUpload)));
+            
+            // 从图片中读取数据 也可以尝试使用黑白纹理填充 见 line601
+            INT nTextureChannel = 0u;
+            TCHAR miniEngineFileName[MAX_PATH] = {};
+            StringCchPrintf(miniEngineFileName,
+                MAX_PATH,
+                _T("%s\\res\\testImg.png"),
+                miniEngineAppPath);
+    
+            char texturePath[MAX_PATH];
+            WideCharToMultiByte(CP_ACP, 0, miniEngineFileName, -1,
+                texturePath, sizeof(texturePath), NULL, NULL);
+            
+            stbi_uc* pixels = stbi_load(texturePath, reinterpret_cast<int*>(&nTextureW), reinterpret_cast<int*>(&nTextureH)
+                , &nTextureChannel, STBI_rgb_alpha);
+            
+            if (!pixels) {
+                throw std::runtime_error("failed to load texture image!");
+            }
+
+            UINT imageSize = nTextureW * nTextureH * nTexturePixelSize;
+            std::vector<UINT8> picTexutre(imageSize);
+            memcpy(picTexutre.data(), pixels, imageSize);
+            stbi_image_free(pixels);
+            
+            // 使用黑白纹理填充图片数据
+            // std::vector<UINT8> picTexutre = GenerateTexture(nTextureW, nTextureH);
+
+            D3D12_SUBRESOURCE_DATA textureData = {};
+            textureData.pData = &picTexutre[0];
+            textureData.RowPitch = nTextureW * nTexturePixelSize;
+            textureData.SlicePitch = textureData.RowPitch * nTextureH;
+            
+            // // UpdateSubresources是一个DirectX 12的API，用于复制数据到 GPU 的资源中，如纹理、缓冲区等。这个函数将数据从 CPU 内存复制到 GPU 内存。
+            UpdateSubresources(pICommandList.Get(), pITexture.Get(), pITexure2DUpload.Get()
+                , 0 , 0 , 1, &textureData);
+            pICommandList->ResourceBarrier(1,
+                &CD3DX12_RESOURCE_BARRIER::Transition(
+                    pITexture.Get(),
+                    D3D12_RESOURCE_STATE_COPY_DEST,
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+            
+            // 创建 SRV 描述符
+            D3D12_SHADER_RESOURCE_VIEW_DESC stSRVDesc = {};
+            stSRVDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            stSRVDesc.Format = emRenderTargetFormat;
+            stSRVDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            stSRVDesc.Texture2D.MipLevels = 1;
+            pID3DDevice->CreateShaderResourceView(pITexture.Get(), &stSRVDesc, pISRVHeap->GetCPUDescriptorHandleForHeapStart());
+
+            // 执行命令列表并等待纹理资源上传完成
+            MINI_ENGINE_THROW(pICommandList->Close());
+            ID3D12CommandList* ppCommandList[] = {pICommandList.Get()};
+            pICommandQueue->ExecuteCommandLists(_countof(ppCommandList), ppCommandList);
+        }
         // 创建同步对象 Fence 等待异步渲染完成
         {
             MINI_ENGINE_THROW(pID3DDevice->CreateFence(0,
@@ -511,92 +634,109 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
             {
                 MINI_ENGINE_THROW(HRESULT_FROM_WIN32(GetLastError()));
             }
+
+            // 等待纹理资源正式复制完成
+            const UINT64 fence = n64FenceValue;
+            MINI_ENGINE_THROW(pICommandQueue->Signal(pIFence.Get(), fence));
+            n64FenceValue++;
+
+            // 查看命令是否真正执行到围栏标记，没有就利用事件等待
+            if(pIFence->GetCompletedValue() < fence)
+            {
+                MINI_ENGINE_THROW(pIFence->SetEventOnCompletion(fence, hFenceEvent));
+                WaitForSingleObject(hFenceEvent, INFINITE);
+            }
         }
 
-        // 填充资源屏障结构
-        D3D12_RESOURCE_BARRIER stBeginResBarrier = {};
-        stBeginResBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        stBeginResBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        stBeginResBarrier.Transition.pResource = pIARenderTargets[nFrameIndex].Get();
-        stBeginResBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-        stBeginResBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        stBeginResBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        // 先 Reset 命令分配器，因为执行了一次纹理复制
+        MINI_ENGINE_THROW(pICommandAllocator->Reset());
 
-        D3D12_RESOURCE_BARRIER stEndResBarrier = {};
-        stEndResBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        stEndResBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        stEndResBarrier.Transition.pResource = pIARenderTargets[nFrameIndex].Get();
-        stEndResBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        stEndResBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-        stEndResBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-
-        D3D12_CPU_DESCRIPTOR_HANDLE stRTVHandle = pIRTVHeap->GetCPUDescriptorHandleForHeapStart();
+        // Reset 命令列表，并重新指定命令分配器和 PSO
+        MINI_ENGINE_THROW(pICommandList->Reset(pICommandAllocator.Get(), pIPipelineState.Get()));
+        
+        // 创建定时器对象，以便创建高效的消息循环
+        HANDLE phWait = CreateWaitableTimer(NULL, FALSE, NULL);
+        LARGE_INTEGER largeWaitTime = {};
+        largeWaitTime.QuadPart = -1i64; // 1s 后开始计时
+        SetWaitableTimer(phWait, &largeWaitTime, 40, NULL, NULL, 0); // 40ms周期的定时器
+        
         DWORD dwRet = 0;
         BOOL bExit = FALSE;
-
-        MINI_ENGINE_THROW(pICommandList->Close());
-        SetEvent(hFenceEvent);
-
         // 开始消息循环
         while (!bExit)
         {
-            dwRet = ::MsgWaitForMultipleObjects(1, &hFenceEvent, FALSE, INFINITE, QS_ALLINPUT);
+            dwRet = ::MsgWaitForMultipleObjects(1, &phWait, FALSE, INFINITE, QS_ALLINPUT);
 
             switch (dwRet - WAIT_OBJECT_0)
             {
+            case WAIT_TIMEOUT:
+                {
+                    
+                }
+                break;
             case 0:
                 {
-                    // 获取新的缓冲区号，当 Present 完成时后缓冲号更新
-                    nFrameIndex = pISwapChain3->GetCurrentBackBufferIndex();
-
-                    // Reset 命令分配器
-                    MINI_ENGINE_THROW(pICommandAllocator->Reset());
-
-                    // Reset 命令列表以重新指定命令分配器与PSO对象
-                    MINI_ENGINE_THROW(pICommandList->Reset(pICommandAllocator.Get(), pIPipelineState.Get()));
-
-                    // 开始记录命令
                     pICommandList->SetGraphicsRootSignature(pIRootSignature.Get());
-                    
-                    pICommandList->SetPipelineState(pIPipelineState.Get());
+                    ID3D12DescriptorHeap* ppHeaps[] = {pISRVHeap.Get()};
+
+                    pICommandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+                    pICommandList->SetGraphicsRootDescriptorTable(0, pISRVHeap->GetGPUDescriptorHandleForHeapStart());
                     pICommandList->RSSetViewports(1, &stViewPort);
                     pICommandList->RSSetScissorRects(1, &stScissorRect);
 
-                    // 通过资源屏障判定后缓冲已经切换完毕 准备渲染
-                    stBeginResBarrier.Transition.pResource = pIARenderTargets[nFrameIndex].Get();
-                    pICommandList->ResourceBarrier(1, &stBeginResBarrier);
-
-                    stRTVHandle = pIRTVHeap->GetCPUDescriptorHandleForHeapStart();
-                    stRTVHandle.ptr += nFrameIndex * nRTVDescriptorSize;
+                    pICommandList->ResourceBarrier(1 ,&CD3DX12_RESOURCE_BARRIER::Transition(
+                        pIARenderTargets[nFrameIndex].Get(),
+                        D3D12_RESOURCE_STATE_PRESENT,
+                        D3D12_RESOURCE_STATE_RENDER_TARGET));
+                    
+                    CD3DX12_CPU_DESCRIPTOR_HANDLE stRTVHandle(pIRTVHeap->GetCPUDescriptorHandleForHeapStart(),
+                        nFrameIndex,
+                        nRTVDescriptorSize);
 
                     // 设置渲染目标
                     pICommandList->OMSetRenderTargets(1, &stRTVHandle, FALSE, nullptr);
-
+                    
                     pICommandList->ClearRenderTargetView(stRTVHandle, fClearColor, 0, nullptr);
+                    // 设定输入到图形管线的图元类型
                     pICommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
                     pICommandList->IASetVertexBuffers(0, 1, &stVertexBufferView);
 
-                    // DrawCall
-                    pICommandList->DrawInstanced(3, 1, 0, 0);
+                    // Draw Call
+                    pICommandList->DrawInstanced(_countof(stTriangleVertices), 1, 0, 0);
 
-                    stEndResBarrier.Transition.pResource = pIARenderTargets[nFrameIndex].Get();
-                    pICommandList->ResourceBarrier(1, &stEndResBarrier);
+                    // 屏障等待绘制完成
+                    pICommandList->ResourceBarrier(1 ,&CD3DX12_RESOURCE_BARRIER::Transition(
+                           pIARenderTargets[nFrameIndex].Get(),
+                           D3D12_RESOURCE_STATE_RENDER_TARGET,
+                           D3D12_RESOURCE_STATE_PRESENT));
 
-                    // 关闭命令队列， 准备执行
                     MINI_ENGINE_THROW(pICommandList->Close());
 
-                    // 执行命令列表
+                    // 执行命令队列
                     ID3D12CommandList* ppCommandList[] = {pICommandList.Get()};
                     pICommandQueue->ExecuteCommandLists(_countof(ppCommandList), ppCommandList);
 
                     // 提交画面
                     MINI_ENGINE_THROW(pISwapChain3->Present(1, 0));
 
-                    // 开始同步 GPU 与 CPU 执行，先记录围栏标记值
-                    const UINT64 n64CurrentFenceValue = n64FenceValue;
-                    MINI_ENGINE_THROW(pICommandQueue->Signal(pIFence.Get(), n64CurrentFenceValue));
-                    n64FenceValue ++ ;
-                    MINI_ENGINE_THROW(pIFence->SetEventOnCompletion(n64CurrentFenceValue, hFenceEvent));
+                    // 围栏同步CPU与GPU执行
+                    const UINT64 fence = n64FenceValue;
+                    MINI_ENGINE_THROW(pICommandQueue->Signal(pIFence.Get(), fence));
+                    n64FenceValue++;
+                    
+                    // 查看命令是否真正执行到围栏标记，没有就利用事件等待
+                    if(pIFence->GetCompletedValue() < fence)
+                    {
+                        MINI_ENGINE_THROW(pIFence->SetEventOnCompletion(fence, hFenceEvent));
+                        WaitForSingleObject(hFenceEvent, INFINITE);
+                    }
+
+                    // 一帧渲染完成
+                    nFrameIndex = pISwapChain3->GetCurrentBackBufferIndex();
+
+                    // 重置命令分配器
+                    MINI_ENGINE_THROW(pICommandAllocator->Reset());
+                    MINI_ENGINE_THROW(pICommandList->Reset(pICommandAllocator.Get(), pIPipelineState.Get()));
                 }
                 break;
             case 1:
@@ -614,11 +754,6 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
                             bExit = TRUE;
                         }
                     }
-                }
-                break;
-            case WAIT_TIMEOUT:
-                {
-                    
                 }
                 break;
             default:
