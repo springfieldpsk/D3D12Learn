@@ -37,7 +37,6 @@ using namespace DirectX;
 #define MINI_ENGINE_WND_CLASS_NAME_L L"Test Dx12 Class"
 #define MINI_ENGINE_WND_TITLE_L L"Test Dx12 Window"
 
-
 #define MINI_ENGINE_THROW(hr) if (FAILED(hr)){ throw MiniEngineExpression(hr); } // 抛出异常宏
 
 // 定义抛错类
