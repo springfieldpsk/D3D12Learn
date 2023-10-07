@@ -27,10 +27,10 @@ using namespace DirectX;
 #include <dxgidebug.h>
 #endif
 
-#include "D3DX12/include/d3dx12.h"
+#include "d3dx12.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb/include/stb_image.h"
+#include "stb_image.h"
 
 #define MINI_ENGINE_WND_CLASS_NAME "Test Dx12 Class"
 #define MINI_ENGINE_WND_TITLE "Test Dx12 Window"

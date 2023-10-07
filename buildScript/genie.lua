@@ -11,7 +11,8 @@ HEADERS_DIR = path.join(MODULE_DIR, 'include')
 
 function defaultSettingForProject()
     includedirs{
-        path.join(MODULE_DIR, "ThirdParty"),
+        path.join(MODULE_DIR, "ThirdParty/D3DX12/include"),
+        path.join(MODULE_DIR, "ThirdParty/stb/include"),
     }
 
     configuration "Debug"
@@ -29,6 +30,7 @@ end
 function addGenerateMisc()
     includedirs{
         path.join(HEADERS_DIR, "misc"),
+        path.join(HEADERS_DIR, "app")
     }
     files{
         path.join(SRC_DIR, "misc/**.cpp"),
@@ -42,9 +44,6 @@ function addGenerateMisc()
 end
 
 function addCppEntryFile(fileName)
-    includedirs{
-        path.join(HEADERS_DIR, "app")
-    }
     files{
         path.join(SRC_DIR, string.format("app/%s.cpp",fileName)),
         path.join(HEADERS_DIR, string.format("app/%s.h",fileName))
