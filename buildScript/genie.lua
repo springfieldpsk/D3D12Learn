@@ -50,7 +50,6 @@ end
 
 function addCppEntryFile(fileName)
     files{
-        path.join(SRC_DIR, string.format("app/%s.cpp",fileName)),
         path.join(HEADERS_DIR, string.format("app/%s.h",fileName))
     }
     vpaths {
@@ -100,6 +99,7 @@ project "examples03"
 
     files{
         path.join(SRC_DIR, "03Bundles.cpp"),
+        path.join(SRC_DIR, "app/D3D12BundleApp.cpp"),
     }
     addGenerateMisc()
     defaultSettingForProject()

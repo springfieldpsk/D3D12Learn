@@ -4,7 +4,6 @@
 #include "defineLib.h"
 #include "Win32Application.h"
 
-
 D3D12Bundles::D3D12Bundles(UINT width, UINT height,std::wstring name):
     DXSample(width, height, name),
     _frameIndex(0),
@@ -160,7 +159,7 @@ void D3D12Bundles::LoadAssets()
 #endif
 
         MINI_ENGINE_THROW(D3DCompileFromFile(
-            GetAssetFullPath(L"shaders.hlsl").c_str(),
+            GetAssetFullPath(L"/Shader/shaders03.hlsl").c_str(),
             nullptr,
             nullptr,
             "VSMain",
@@ -170,7 +169,7 @@ void D3D12Bundles::LoadAssets()
             &vertexShader,
             nullptr));
         MINI_ENGINE_THROW(D3DCompileFromFile(
-            GetAssetFullPath(L"shaders.hlsl").c_str(),
+            GetAssetFullPath(L"/Shader/shaders03.hlsl").c_str(),
             nullptr,
             nullptr,
             "PSMain",
