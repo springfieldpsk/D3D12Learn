@@ -1,6 +1,6 @@
-#pragma once
-#include "stdafx.h"
+﻿#pragma once
 #include "DXSampleHelper.h"
+#include "stdafx.h"
 
 class DXSample
 {

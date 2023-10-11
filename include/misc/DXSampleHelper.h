@@ -1,12 +1,11 @@
-#pragma once
-#include <intsafe.h>
+﻿#pragma once
 #include <stdexcept>
 #include <filesystem>
-#include "DXSample.h"
+#include <tchar.h>
 
 namespace fs = std::filesystem;
 
-inline void GetAssetsPath(_Out_writes_(pathSize) WCHAR* path, UINT pathSize){
+inline void GetAssetsPath(_Out_writes_(pathSize) TCHAR* path, uint32_t pathSize){
     if(path == nullptr)
     {
         throw std::exception();

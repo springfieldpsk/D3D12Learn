@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "DXSample.h"
 
@@ -37,6 +37,7 @@ private:
     ComPtr<ID3D12CommandQueue> _commandQueue;
     ComPtr<ID3D12RootSignature> _rootSignature;
     ComPtr<ID3D12DescriptorHeap> _rtvHeap;
+    ComPtr<ID3D12PipelineState> _pipelineState;
     ComPtr<ID3D12GraphicsCommandList> _commandList;
     ComPtr<ID3D12GraphicsCommandList> _bundle;
     UINT _rtvDescriptorSize;

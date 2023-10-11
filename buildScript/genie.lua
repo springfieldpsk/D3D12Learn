@@ -41,6 +41,11 @@ function addGenerateMisc()
             path.join(HEADERS_DIR, "misc/**.h")
         }
     }
+    links{
+        "d3d12",
+        "dxgi",
+        "d3dcompiler"
+    }
 end
 
 function addCppEntryFile(fileName)

@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "Win32Application.h"
 #include "defineLib.h"
 

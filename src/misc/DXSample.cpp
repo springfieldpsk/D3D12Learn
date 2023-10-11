@@ -1,5 +1,5 @@
-#include "DXSample.h"
-
+﻿#include "DXSample.h"
+#include "stdafx.h"
 #include "Win32Application.h"
 
 using namespace Microsoft::WRL;
