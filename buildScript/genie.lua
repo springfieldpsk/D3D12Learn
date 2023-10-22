@@ -104,3 +104,15 @@ project "examples03"
     addGenerateMisc()
     defaultSettingForProject()
     addCppEntryFile("D3D12BundleApp")
+
+project "examples04"
+    kind "WindowedApp"
+    uuid (os.uuid("examples04"))
+
+    files{
+        path.join(SRC_DIR, "04CBuffer.cpp"),
+        path.join(SRC_DIR, "app/D3D12CBuffer.cpp"),
+    }
+    addGenerateMisc()
+    defaultSettingForProject()
+    addCppEntryFile("D3D12CBuffer")
