@@ -1,26 +1,27 @@
-﻿#include "D3D12CBuffer.h"
+#include "D3D12FrameBuffer.h"
 #include "defineLib.h"
 #include "Win32Application.h"
 
-D3D12CBuffer::D3D12CBuffer(UINT width, UINT height, std::wstring name):
+D3D12FrameBuffer::D3D12FrameBuffer(UINT width, UINT height, std::wstring name):
     DXSample(width, height, name),
     _frameIndex(0),
     _viewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)),
     _scissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height)),
     _rtvDescriptorSize(0),
     _pCbvDataBegin(nullptr),
-    _constantBufferData{}
+    _constantBufferData{},
+    _fenceValue{}
 {
     
 }
 
-void D3D12CBuffer::OnInit()
+void D3D12FrameBuffer::OnInit()
 {
     LoadPipeline();
     LoadAssets();
 }
 
-void D3D12CBuffer::LoadPipeline()
+void D3D12FrameBuffer::LoadPipeline()
 {
     UINT dxgiFactoryFlags = 0;
 
@@ -131,14 +132,13 @@ void D3D12CBuffer::LoadPipeline()
             MINI_ENGINE_THROW(_swapChain->GetBuffer(i, IID_PPV_ARGS(&_renderTarget[i])));
             _device->CreateRenderTargetView(_renderTarget[i].Get(), nullptr, rtvHandle);
             rtvHandle.Offset(1, _rtvDescriptorSize);
+            // 创建命令列表分配器
+            MINI_ENGINE_THROW(_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_commandAllocator[i])));
         }
     }
-    
-    // 创建命令列表分配器
-    MINI_ENGINE_THROW(_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_commandAllocator)));
 }
 
-void D3D12CBuffer::LoadAssets()
+void D3D12FrameBuffer::LoadAssets()
 {
     // 创建一个根签名对象包含一个有一个CBV描述符表
     {
@@ -244,8 +244,9 @@ void D3D12CBuffer::LoadAssets()
         MINI_ENGINE_THROW(_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&_pipelineState)));
     }
 
+    // 使用当前帧的分配器创建一个新的 CommandList
     MINI_ENGINE_THROW(_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-        _commandAllocator.Get(), _pipelineState.Get(), IID_PPV_ARGS(&_commandList)));
+        _commandAllocator[_frameIndex].Get(), _pipelineState.Get(), IID_PPV_ARGS(&_commandList)));
 
     // 创建 commandList后, commandList 将会处在录制状态, 因此在现在关闭
     _commandList->Close();
@@ -313,8 +314,8 @@ void D3D12CBuffer::LoadAssets()
 
     // 创建同步对象并等待资源被上传至 GPU
     {
-        MINI_ENGINE_THROW(_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_fence)));
-        _fenceValue = 1;
+        MINI_ENGINE_THROW(_device->CreateFence(_fenceValue[_frameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_fence)));
+        _fenceValue[_frameIndex]++;
 
         // 创建事件句柄并用于帧同步
         _fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
@@ -324,11 +325,11 @@ void D3D12CBuffer::LoadAssets()
         }
         
         // 等待命令列表执行;我们在主循环中重用了相同的命令列表，但是现在，我们只想等待设置完成后再继续。
-        WaitForPreviousFrame();
+        WaitForGPU();
     }
 }
 
-void D3D12CBuffer::OnUpdate()
+void D3D12FrameBuffer::OnUpdate()
 {
     const float translationSpeed = 0.005f;
     const float offsetBounds = 1.25f;
@@ -341,7 +342,7 @@ void D3D12CBuffer::OnUpdate()
     memcpy(_pCbvDataBegin, &_constantBufferData, sizeof(_constantBufferData));
 }
 
-void D3D12CBuffer::OnRender()
+void D3D12FrameBuffer::OnRender()
 {
     // 将所有我们需要的渲染指令保存在渲染队列中
     PopulateCommandList();
@@ -353,23 +354,23 @@ void D3D12CBuffer::OnRender()
     // 交换链交换
     MINI_ENGINE_THROW(_swapChain->Present(1, 0));
 
-    WaitForPreviousFrame();
+    MoveToNextFrame();
 }
 
-void D3D12CBuffer::OnDestroy()
+void D3D12FrameBuffer::OnDestroy()
 {
-    WaitForPreviousFrame();
-
+    WaitForGPU();
+    
     CloseHandle(_fenceEvent);
 }
 
-void D3D12CBuffer::PopulateCommandList()
+void D3D12FrameBuffer::PopulateCommandList()
 {
     // 命令列表分配器只能在相关的命令列表在GPU上完成执行时重置;应用程序应该使用栅栏来确定GPU的执行进度。
-    MINI_ENGINE_THROW(_commandAllocator->Reset());
+    MINI_ENGINE_THROW(_commandAllocator[_frameIndex]->Reset());
     
     // 但是，当ExecuteCommandList()在一个特定的命令列表上被调用时，该命令列表可以在任何时候被重置，并且必须在重新记录之前重置。
-    MINI_ENGINE_THROW(_commandList->Reset(_commandAllocator.Get(), _pipelineState.Get()));
+    MINI_ENGINE_THROW(_commandList->Reset(_commandAllocator[_frameIndex].Get(), _pipelineState.Get()));
 
     // 设定需要的状态
     _commandList->SetGraphicsRootSignature(_rootSignature.Get());
@@ -406,23 +407,34 @@ void D3D12CBuffer::PopulateCommandList()
     MINI_ENGINE_THROW(_commandList->Close());
 }
 
-void D3D12CBuffer::WaitForPreviousFrame()
+void D3D12FrameBuffer::WaitForGPU()
 {
-    // 等待帧完成并不是DX12的最佳实现，这里只是为了简单因此这么写
+    MINI_ENGINE_THROW(_commandQueue->Signal(_fence.Get(), _fenceValue[_frameIndex]));
 
-    // signal 并递增围栏值
-    const UINT64 fence = _fenceValue;
-    MINI_ENGINE_THROW(_commandQueue->Signal(_fence.Get(), fence));
-    _fenceValue ++;
+    // 等待围栏值到达
+    MINI_ENGINE_THROW(_fence->SetEventOnCompletion(_fenceValue[_frameIndex], _fenceEvent));
+    WaitForSingleObjectEx(_fenceEvent, INFINITE, FALSE);
 
-    // 等待上一帧渲染完成
-    if(_fence->GetCompletedValue() < fence)
+    // 递增当前帧的围栏值
+    _fenceValue[_frameIndex] ++;
+}
+
+void D3D12FrameBuffer::MoveToNextFrame()
+{
+    const UINT64 currentFenceValue = _fenceValue[_frameIndex];
+    MINI_ENGINE_THROW(_commandQueue->Signal(_fence.Get(), currentFenceValue));
+
+    // 更新当前帧号
+    _frameIndex = _swapChain->GetCurrentBackBufferIndex();
+
+    // 当下一帧还没有准备好渲染，等待下一帧
+    if(_fence->GetCompletedValue() < currentFenceValue)
     {
-        // 指定当围栏达到特定值时引发的事件
-        MINI_ENGINE_THROW(_fence->SetEventOnCompletion(fence, _fenceEvent));
-        // WaitForSingleObject 函数检查指定对象的当前状态。 如果对象的状态未对齐，则调用线程将进入等待状态
-        WaitForSingleObject(_fenceEvent, INFINITE);
+        MINI_ENGINE_THROW(_fence->SetEventOnCompletion(currentFenceValue, _fenceEvent));
+        WaitForSingleObjectEx(_fenceEvent, INFINITE, FALSE);
     }
 
-    _frameIndex = _swapChain->GetCurrentBackBufferIndex();
+    // 更新下一帧的围栏值
+    _fenceValue[_frameIndex] = currentFenceValue + 1;
 }
+

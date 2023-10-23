@@ -1,7 +1,7 @@
 ﻿#pragma once
 
-#define MINI_ENGINE_WND_CLASS_NAME L"Test Dx12 Class"
-#define MINI_ENGINE_WND_TITLE L"Test Dx12 Window"
+constexpr const std::wstring_view MINI_ENGINE_WND_CLASS_NAME = L"Test Dx12 Class";
+constexpr const std::wstring_view MINI_ENGINE_WND_TITLE = L"Test Dx12 Window";
 
 class MiniEngineExpression
 {
@@ -16,4 +16,10 @@ private:
     const HRESULT hr_;
 };
 
-#define MINI_ENGINE_THROW(hr) if (FAILED(hr)){ throw MiniEngineExpression(hr); } // 抛出异常宏
+inline void MINI_ENGINE_THROW(HRESULT hr)
+{
+    if (FAILED(hr))
+    {
+        throw MiniEngineExpression(hr);
+    }
+}// 抛出异常宏

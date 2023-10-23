@@ -68,7 +68,7 @@ solution "d3d12Learn"
         "x32",
         "x64"
     }
-    flags { "Cpp17", "Unicode", "WinMain" }
+    flags { "Cpp20", "Unicode", "WinMain" }
     location (BUILD_DIR)
     language "C++"
     startproject "example-00-helloworld"
@@ -116,3 +116,15 @@ project "examples04"
     addGenerateMisc()
     defaultSettingForProject()
     addCppEntryFile("D3D12CBuffer")
+
+project "examples05"
+    kind "WindowedApp"
+    uuid (os.uuid("examples05"))
+
+    files{
+        path.join(SRC_DIR, "05FrameBuffer.cpp"),
+        path.join(SRC_DIR, "app/D3D12FrameBuffer.cpp"),
+    }
+    addGenerateMisc()
+    defaultSettingForProject()
+    addCppEntryFile("D3D12FrameBuffer")

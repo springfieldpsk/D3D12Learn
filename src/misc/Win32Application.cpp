@@ -22,7 +22,7 @@ int Win32Application::Run(DXSample* pSample, HINSTANCE hInstance, int nCmdShow)
     wcex.hInstance = hInstance;
     wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wcex.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);		//防止无聊的背景重绘
-    wcex.lpszClassName = MINI_ENGINE_WND_CLASS_NAME;
+    wcex.lpszClassName = MINI_ENGINE_WND_CLASS_NAME.data();
     RegisterClassEx(&wcex);
     
     RECT rc = { 0, 0, static_cast<LONG>(pSample->GetWidth()), static_cast<LONG>(pSample->GetHeight()) };

@@ -496,12 +496,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         };
 
         const UINT nVertexBufferSize = sizeof(stTriangleVertices);
-        
+        CD3DX12_RESOURCE_DESC resourceBuffer = CD3DX12_RESOURCE_DESC::Buffer(nVertexBufferSize);
+        CD3DX12_HEAP_PROPERTIES uploadProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
         // 向设备 GPU 提交资源 (DX12 中不多的同步函数)
         MINI_ENGINE_THROW(pID3DDevice->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD)
+            &uploadProperties
             ,D3D12_HEAP_FLAG_NONE
-            ,&CD3DX12_RESOURCE_DESC::Buffer(nVertexBufferSize)
+            ,&resourceBuffer
             ,D3D12_RESOURCE_STATE_GENERIC_READ
             ,nullptr
             ,IID_PPV_ARGS(&pIVertexBuffer)));
@@ -548,10 +549,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             // 创建默认堆上的资源，类型是Texture2D，GPU对默认堆的读取速度最快
             // 由于纹理资源一般是不易变资源，因此使用上传堆复制到默认堆上
             // 在传统的D3D11及以前的D3D接口中，这些过程都被封装了，我们只能指定创建时的类型为默认堆
+            CD3DX12_RESOURCE_DESC resourceTex2D = CD3DX12_RESOURCE_DESC::Tex2D(emRenderTargetFormat, nTextureW, nTextureH);
+            CD3DX12_HEAP_PROPERTIES defaultProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
             MINI_ENGINE_THROW(pID3DDevice->CreateCommittedResource(
-                &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+                &defaultProperties,
                 D3D12_HEAP_FLAG_NONE,
-                &CD3DX12_RESOURCE_DESC::Tex2D(emRenderTargetFormat, nTextureW, nTextureH),
+                &resourceTex2D,
                 D3D12_RESOURCE_STATE_COPY_DEST,
                 nullptr,
                 IID_PPV_ARGS(&pITexture)));
@@ -560,10 +563,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             const UINT64 n64UploadBufferSize = GetRequiredIntermediateSize(pITexture.Get(), 0, 1);
 
             // 创建上传纹理的 Buffer 资源, 由于上传堆对于 GPU 访问效率很差，因此对于默认不变数据采用上传堆复制到默认堆上
+            CD3DX12_RESOURCE_DESC uploadBuffer = CD3DX12_RESOURCE_DESC::Buffer(n64UploadBufferSize);
+            CD3DX12_HEAP_PROPERTIES uploadProperties(D3D12_HEAP_TYPE_UPLOAD);
             MINI_ENGINE_THROW(pID3DDevice->CreateCommittedResource(
-                &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+                &uploadProperties,
                 D3D12_HEAP_FLAG_NONE,
-                &CD3DX12_RESOURCE_DESC::Buffer(n64UploadBufferSize),
+                &uploadBuffer,
                 D3D12_RESOURCE_STATE_GENERIC_READ,
                 nullptr,
                 IID_PPV_ARGS(&pITexure2DUpload)));
@@ -600,14 +605,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             textureData.RowPitch = nTextureW * nTexturePixelSize;
             textureData.SlicePitch = textureData.RowPitch * nTextureH;
             
-            // // UpdateSubresources是一个DirectX 12的API，用于复制数据到 GPU 的资源中，如纹理、缓冲区等。这个函数将数据从 CPU 内存复制到 GPU 内存。
+            // UpdateSubresources是一个DirectX 12的API，用于复制数据到 GPU 的资源中，如纹理、缓冲区等。这个函数将数据从 CPU 内存复制到 GPU 内存。
             UpdateSubresources(pICommandList.Get(), pITexture.Get(), pITexure2DUpload.Get()
                 , 0 , 0 , 1, &textureData);
-            pICommandList->ResourceBarrier(1,
-                &CD3DX12_RESOURCE_BARRIER::Transition(
+            CD3DX12_RESOURCE_BARRIER updateResourceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
                     pITexture.Get(),
                     D3D12_RESOURCE_STATE_COPY_DEST,
-                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            
+            pICommandList->ResourceBarrier(1, &updateResourceBarrier);
             
             // 创建 SRV 描述符
             D3D12_SHADER_RESOURCE_VIEW_DESC stSRVDesc = {};
@@ -686,10 +692,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                     pICommandList->RSSetViewports(1, &stViewPort);
                     pICommandList->RSSetScissorRects(1, &stScissorRect);
 
-                    pICommandList->ResourceBarrier(1 ,&CD3DX12_RESOURCE_BARRIER::Transition(
+                    CD3DX12_RESOURCE_BARRIER commandBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
                         pIARenderTargets[nFrameIndex].Get(),
                         D3D12_RESOURCE_STATE_PRESENT,
-                        D3D12_RESOURCE_STATE_RENDER_TARGET));
+                        D3D12_RESOURCE_STATE_RENDER_TARGET);
+                    
+                    pICommandList->ResourceBarrier(1 ,&commandBarrier);
                     
                     CD3DX12_CPU_DESCRIPTOR_HANDLE stRTVHandle(pIRTVHeap->GetCPUDescriptorHandleForHeapStart(),
                         nFrameIndex,
@@ -707,10 +715,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                     pICommandList->DrawInstanced(_countof(stTriangleVertices), 1, 0, 0);
 
                     // 屏障等待绘制完成
-                    pICommandList->ResourceBarrier(1 ,&CD3DX12_RESOURCE_BARRIER::Transition(
+                    CD3DX12_RESOURCE_BARRIER waitBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
                            pIARenderTargets[nFrameIndex].Get(),
                            D3D12_RESOURCE_STATE_RENDER_TARGET,
-                           D3D12_RESOURCE_STATE_PRESENT));
+                           D3D12_RESOURCE_STATE_PRESENT);
+                    pICommandList->ResourceBarrier(1 ,&waitBarrier);
 
                     MINI_ENGINE_THROW(pICommandList->Close());
 

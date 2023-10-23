@@ -220,10 +220,12 @@ void D3D12Bundles::LoadAssets()
 
         // 注意：不推荐使用上传堆来传输静态数据，比如vert buffers。每次GPU需要它时，上传堆都会被编组。
         // 请阅读默认堆的使用。这里使用上传堆是为了代码简单，因为实际上要传输的vert非常少。
+        CD3DX12_HEAP_PROPERTIES uploadProperties(D3D12_HEAP_TYPE_UPLOAD);
+        CD3DX12_RESOURCE_DESC uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize);
         MINI_ENGINE_THROW(_device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            &uploadProperties,
             D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
+            &uploadBufferDesc,
             D3D12_RESOURCE_STATE_GENERIC_READ,
             nullptr,
             IID_PPV_ARGS(&_vertexBuffer)));
