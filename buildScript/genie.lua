@@ -24,6 +24,7 @@ function defaultSettingForProject()
         defines     { "NDEBUG", "_WINDOWS" }
         flags       { "OptimizeSize" }
         targetdir   (path.join(BUILD_DIR,'bin/Release'))   
+    configuration {}
 
 end
 
@@ -93,9 +94,9 @@ project "examples02"
 
     defaultSettingForProject()
 
-project "examples03"
+project "examples03-Bundles"
     kind "WindowedApp"
-    uuid (os.uuid("examples03"))
+    uuid (os.uuid("xamples03-Bundles"))
 
     files{
         path.join(SRC_DIR, "03Bundles.cpp"),
@@ -105,7 +106,7 @@ project "examples03"
     defaultSettingForProject()
     addCppEntryFile("D3D12BundleApp")
 
-project "examples04"
+project "examples04-ConstantBuffer"
     kind "WindowedApp"
     uuid (os.uuid("examples04"))
 
@@ -117,7 +118,39 @@ project "examples04"
     defaultSettingForProject()
     addCppEntryFile("D3D12CBuffer")
 
-project "examples05"
+project "examples05-FrameBuffer"
+    kind "WindowedApp"
+    uuid (os.uuid("examples05-FrameBuffer"))
+
+    files{
+        path.join(SRC_DIR, "05FrameBuffer.cpp"),
+        path.join(SRC_DIR, "app/D3D12FrameBuffer.cpp"),
+    }
+    addGenerateMisc()
+    defaultSettingForProject()
+    addCppEntryFile("D3D12FrameBuffer")
+
+project "imgui"
+    kind "StaticLib"
+    uuid (os.uuid("imgui"))
+
+    files{
+        path.join(MODULE_DIR, "ThirdParty/imgui/imgui*"),
+        path.join(MODULE_DIR, "ThirdParty/imgui/imconfig.h"),
+        path.join(MODULE_DIR, "ThirdParty/imgui/misc/debuggers/imgui.natvis"),
+        path.join(MODULE_DIR, "ThirdParty/imgui/misc/debuggers/imgui.natstepfilter"),
+        path.join(MODULE_DIR, "ThirdParty/imgui/backends/imgui_impl_dx12.*"),
+        path.join(MODULE_DIR, "ThirdParty/imgui/backends/imgui_impl_win32.*"),
+    }
+
+function addImguiSupport()
+    includedirs({
+        path.join(MODULE_DIR, "ThirdParty/imgui"),
+    })
+    links { "imgui" }
+end
+
+project "examples06-addImguiSupport"
     kind "WindowedApp"
     uuid (os.uuid("examples05"))
 
@@ -128,3 +161,4 @@ project "examples05"
     addGenerateMisc()
     defaultSettingForProject()
     addCppEntryFile("D3D12FrameBuffer")
+    addImguiSupport()
