@@ -156,9 +156,9 @@ project "examples06-addImguiSupport"
 
     files{
         path.join(SRC_DIR, "05FrameBuffer.cpp"),
-        path.join(SRC_DIR, "app/D3D12FrameBuffer.cpp"),
+        path.join(SRC_DIR, "app/D3D12UseImGui.cpp"),
     }
     addGenerateMisc()
     defaultSettingForProject()
-    addCppEntryFile("D3D12FrameBuffer")
+    addCppEntryFile("D3D12UseImGui")
     addImguiSupport()
