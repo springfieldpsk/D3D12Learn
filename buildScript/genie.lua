@@ -133,7 +133,9 @@ project "examples05-FrameBuffer"
 project "imgui"
     kind "StaticLib"
     uuid (os.uuid("imgui"))
-
+    includedirs({
+        path.join(MODULE_DIR, "ThirdParty/imgui"),
+    })
     files{
         path.join(MODULE_DIR, "ThirdParty/imgui/imgui*"),
         path.join(MODULE_DIR, "ThirdParty/imgui/imconfig.h"),
@@ -152,10 +154,10 @@ end
 
 project "examples06-addImguiSupport"
     kind "WindowedApp"
-    uuid (os.uuid("examples05"))
+    uuid (os.uuid("examples06"))
 
     files{
-        path.join(SRC_DIR, "05FrameBuffer.cpp"),
+        path.join(SRC_DIR, "06UseImGui.cpp"),
         path.join(SRC_DIR, "app/D3D12UseImGui.cpp"),
     }
     addGenerateMisc()

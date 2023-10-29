@@ -2,6 +2,9 @@
 #include "defineLib.h"
 #include "Win32Application.h"
 #include "UIManager.h"
+#include "imgui.h"
+#include "backends/imgui_impl_dx12.h"
+#include "backends/imgui_impl_win32.h"
 
 D3D12UseImGui::D3D12UseImGui(UINT width, UINT height, std::wstring name):
     DXSample(width, height, name),
@@ -21,7 +24,7 @@ void D3D12UseImGui::OnInit()
     LoadPipeline();
     LoadAssets();
     UIMangerCreateInfo createInfo = UIMangerCreateInfo(
-        FrameCount, _device, _rtvHeap);
+        FrameCount, _device);
     UIManager::getInstance().OnInit(createInfo);
 }
 
@@ -402,9 +405,10 @@ void D3D12UseImGui::PopulateCommandList()
     _commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     _commandList->IASetVertexBuffers(0, 1, &_vertexBufferView);
     _commandList->DrawInstanced(3, 1, 0, 0);
-
+    
     UIMangerRuntimeInfo runtime_info = UIMangerRuntimeInfo(_commandList);
     UIManager::getInstance().OnUpdate(runtime_info);
+    
     CD3DX12_RESOURCE_BARRIER afterTransition = CD3DX12_RESOURCE_BARRIER::Transition(_renderTarget[_frameIndex].Get(),
         D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
     

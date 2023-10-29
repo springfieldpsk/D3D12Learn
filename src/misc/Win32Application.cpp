@@ -1,6 +1,7 @@
 ﻿#include "stdafx.h"
 #include "Win32Application.h"
 #include "defineLib.h"
+#include "UIManager.h"
 
 HWND Win32Application::_hwnd = nullptr;
 
@@ -73,6 +74,9 @@ LRESULT CALLBACK Win32Application::WindowProc(HWND hWnd, UINT message, WPARAM wP
 {
     DXSample* pSample = reinterpret_cast<DXSample*>(GetWindowLongPtr(hWnd, GWLP_USERDATA));
 
+    if(UIManager::getInstance().UIProc(hWnd, message, wParam, lParam))
+        return true;
+    
     switch (message)
     {
     case WM_CREATE:
